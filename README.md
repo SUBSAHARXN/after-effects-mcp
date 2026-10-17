@@ -223,6 +223,15 @@ Note: some AE operations finish slightly after tool timeout windows; `get-result
 - `center-layers`
 - `get-layer-clip-frames`
 
+### Lottie and Interactivity
+
+- `audit-lottie-compliance` (audits comp for raster filters, unbaked expressions, text/vector footage)
+- `compile-lottie-comp` (clones comp, bakes expressions to keyframes, flattens 3D, converts text/AI to shapes)
+- `export-lottie-json` (exports compliant vector Lottie JSON)
+- `add-lottie-state-markers` (adds state markers e.g. idle, hover, active, exit)
+- `generate-lottie-interactivity` (compiles dotLottie state machine specification from markers)
+- `export-dotlottie-package` (packages Lottie JSON + manifest into compressed .lottie ZIP container)
+
 ### Effects and Presets
 
 - `apply-effect`

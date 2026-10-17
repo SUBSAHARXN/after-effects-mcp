@@ -1859,8 +1859,15 @@ function getLottieScriptRunner(funcName: string, args: Record<string, any>): str
   return `(function() {
     try {
       var scriptFile = new File("${compilerPath}");
+      if (!scriptFile.exists) {
+        var fallback = new File(Folder.appPackage.fsName + "/Support Files/Scripts/ScriptUI Panels/lottieCompiler.jsx");
+        if (!fallback.exists) fallback = new File(Folder.appPackage.fsName + "/Scripts/ScriptUI Panels/lottieCompiler.jsx");
+        if (fallback.exists) scriptFile = fallback;
+      }
       if (scriptFile.exists) {
         $.evalFile(scriptFile);
+      } else {
+        return JSON.stringify({ status: "error", message: "lottieCompiler.jsx not found at " + "${compilerPath}" });
       }
       if (typeof ${funcName} === "function") {
         return ${funcName}(${argsJson});

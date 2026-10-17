@@ -58,3 +58,9 @@ Use this command setup in your MCP config:
 - npm run install-bridge
 - Restart After Effects
 - Restart Claude/Desktop MCP client
+
+11) Lottie & dotLottie Workflow
+- Audit: call audit-lottie-compliance to check layers, unbaked expressions, and raster effects.
+- Compile: call compile-lottie-comp to auto-clone comp, bake expressions into keyframes, convert text/footage to shape vectors.
+- State Machine: call add-lottie-state-markers or generate-lottie-interactivity to create interactive triggers (hover, click, loop).
+- Export: call export-dotlottie-package to produce ready-to-use .lottie bundles.

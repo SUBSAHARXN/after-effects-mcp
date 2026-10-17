@@ -1,124 +1,118 @@
-﻿
-
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 
-
-const possiblePaths = isMac
-  ? [
-      '/Applications/Adobe After Effects 2026',
-      '/Applications/Adobe After Effects 2025',
-      '/Applications/Adobe After Effects 2024',
-      '/Applications/Adobe After Effects 2023',
-      '/Applications/Adobe After Effects 2022',
-      '/Applications/Adobe After Effects 2021'
-    ]
-  : [
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2026',
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2025',
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2024',
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2023',
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2022',
-      'C:\\Program Files\\Adobe\\Adobe After Effects 2021'
-    ];
-
-
-let afterEffectsPath = null;
-for (const testPath of possiblePaths) {
-  if (fs.existsSync(testPath)) {
-    afterEffectsPath = testPath;
-    break;
+const detectedAEPaths = [];
+if (isMac) {
+  const appsDir = '/Applications';
+  if (fs.existsSync(appsDir)) {
+    for (const name of fs.readdirSync(appsDir)) {
+      if (/Adobe After Effects/i.test(name)) {
+        detectedAEPaths.push(path.join(appsDir, name));
+      }
+    }
+  }
+} else {
+  const progFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const adobeDir = path.join(progFiles, 'Adobe');
+  if (fs.existsSync(adobeDir)) {
+    for (const name of fs.readdirSync(adobeDir)) {
+      if (/Adobe After Effects/i.test(name)) {
+        detectedAEPaths.push(path.join(adobeDir, name));
+      }
+    }
   }
 }
 
-if (!afterEffectsPath) {
-  console.error('Error: Could not find After Effects installation.');
-  console.error('Please manually copy the bridge script to your After Effects ScriptUI Panels folder.');
-  console.error('Source: build/scripts/mcp-bridge-auto.jsx');
-  if (isMac) {
-    console.error('Target: /Applications/Adobe After Effects [VERSION]/Scripts/ScriptUI Panels/');
-  } else {
-    console.error('Target: C:\\Program Files\\Adobe\\Adobe After Effects [VERSION]\\Support Files\\Scripts\\ScriptUI Panels\\');
+const scriptsDir = path.join(__dirname, 'build', 'scripts');
+const sourceFiles = ['mcp-bridge-auto.jsx', 'lottieCompiler.jsx'];
+
+for (const sf of sourceFiles) {
+  const p = path.join(scriptsDir, sf);
+  if (!fs.existsSync(p)) {
+    console.error(`Error: Source script not found at ${p}`);
+    console.error('Please run "npm run build" first to generate the scripts.');
+    process.exit(1);
   }
-  process.exit(1);
 }
 
+function collectDestinationFolders() {
+  const folders = [];
 
-const sourceScript = path.join(__dirname, 'build', 'scripts', 'mcp-bridge-auto.jsx');
-
-function collectDestinationScripts() {
-  const destinations = [];
-
-  if (isMac) {
-    destinations.push(path.join(afterEffectsPath, 'Scripts', 'ScriptUI Panels', 'mcp-bridge-auto.jsx'));
-    return destinations;
-  }
-
-  
-  destinations.push(path.join(afterEffectsPath, 'Support Files', 'Scripts', 'ScriptUI Panels', 'mcp-bridge-auto.jsx'));
-
-  
+  // 1. Prioritize user AppData directories (requires zero elevation)
   const appData = process.env.APPDATA;
   if (appData) {
     const aeRoot = path.join(appData, 'Adobe', 'After Effects');
     if (fs.existsSync(aeRoot)) {
       for (const versionDir of fs.readdirSync(aeRoot)) {
-        const versionRoot = path.join(aeRoot, versionDir);
-        if (fs.statSync(versionRoot).isDirectory()) {
-          destinations.push(path.join(versionRoot, 'Scripts', 'mcp-bridge-auto.jsx'));
-          destinations.push(path.join(versionRoot, 'Scripts', 'ScriptUI Panels', 'mcp-bridge-auto.jsx'));
+        // Only target genuine AE version directories (e.g. 24.0, 25.0)
+        if (/^\d+(\.\d+)*$/.test(versionDir)) {
+          const versionRoot = path.join(aeRoot, versionDir);
+          if (fs.statSync(versionRoot).isDirectory()) {
+            folders.push(path.join(versionRoot, 'Scripts'));
+            folders.push(path.join(versionRoot, 'Scripts', 'ScriptUI Panels'));
+          }
         }
       }
     }
   }
 
-  
+  // 2. Program Files / System Application paths
+  for (const aePath of detectedAEPaths) {
+    if (isMac) {
+      folders.push(path.join(aePath, 'Scripts', 'ScriptUI Panels'));
+    } else {
+      folders.push(path.join(aePath, 'Support Files', 'Scripts', 'ScriptUI Panels'));
+    }
+  }
+
   const unique = [];
   const seen = new Set();
-  for (const d of destinations) {
-    if (!seen.has(d)) {
-      unique.push(d);
-      seen.add(d);
+  for (const f of folders) {
+    if (!seen.has(f)) {
+      unique.push(f);
+      seen.add(f);
     }
   }
   return unique;
 }
 
-function copyDirect(destinationScript) {
-  const destinationFolder = path.dirname(destinationScript);
+function copyDirect(sourcePath, destinationPath) {
+  const destinationFolder = path.dirname(destinationPath);
   if (!fs.existsSync(destinationFolder)) {
     fs.mkdirSync(destinationFolder, { recursive: true });
   }
-  fs.copyFileSync(sourceScript, destinationScript);
+  fs.copyFileSync(sourcePath, destinationPath);
 }
 
-function copyElevatedWindows(destinationScript) {
-  const escapedSource = sourceScript.replace(/'/g, "''");
-  const escapedDestination = destinationScript.replace(/'/g, "''");
-  const command = `Start-Process PowerShell -Verb RunAs -Wait -ArgumentList "-Command New-Item -ItemType Directory -Path '${path.dirname(destinationScript).replace(/\\/g, '\\\\')}' -Force | Out-Null; Copy-Item -Path '${escapedSource}' -Destination '${escapedDestination}' -Force"`;
-  execSync(`powershell -Command "${command}"`, { stdio: 'inherit' });
+function copyElevatedWindows(destFolder, srcFiles) {
+  const copyCommands = srcFiles.map(file => {
+    const src = path.join(scriptsDir, file).replace(/'/g, "''");
+    const dst = path.join(destFolder, file).replace(/'/g, "''");
+    return `Copy-Item -LiteralPath '${src}' -Destination '${dst}' -Force;`;
+  }).join(' ');
+
+  const scriptContent = `
+    $dir = '${destFolder.replace(/'/g, "''")}';
+    if (-not (Test-Path -LiteralPath $dir)) {
+      [void](New-Item -ItemType Directory -Path $dir -Force);
+    }
+    ${copyCommands}
+  `;
+
+  const encoded = Buffer.from(scriptContent, 'utf16le').toString('base64');
+  execSync(`powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -Wait -ArgumentList '-EncodedCommand ${encoded}'"`, { stdio: 'inherit' });
 }
-
-
-if (!fs.existsSync(sourceScript)) {
-  console.error(`Error: Source script not found at ${sourceScript}`);
-  console.error('Please run "npm run build" first to generate the script.');
-  process.exit(1);
-}
-
 
 try {
-  const destinations = collectDestinationScripts();
+  const destinations = collectDestinationFolders();
   if (destinations.length === 0) {
     throw new Error('No destination paths found for bridge installation.');
   }
@@ -126,26 +120,41 @@ try {
   const installed = [];
   const failed = [];
 
-  for (const destinationScript of destinations) {
+  for (const destFolder of destinations) {
     try {
-      console.log(`Installing bridge script to ${destinationScript}...`);
+      console.log(`Installing bridge scripts to ${destFolder}...`);
 
-      
-      try {
-        copyDirect(destinationScript);
-      } catch (directError) {
-        if (isMac) {
-          execSync(`sudo cp "${sourceScript}" "${destinationScript}"`, { stdio: 'inherit' });
-        } else if (destinationScript.toLowerCase().indexOf('program files') !== -1) {
-          copyElevatedWindows(destinationScript);
-        } else {
-          throw directError;
+      let needsElevated = false;
+      for (const file of sourceFiles) {
+        const src = path.join(scriptsDir, file);
+        const dst = path.join(destFolder, file);
+        try {
+          copyDirect(src, dst);
+        } catch (err) {
+          if (isWindows && destFolder.toLowerCase().includes('program files')) {
+            needsElevated = true;
+            break;
+          } else if (isMac) {
+            execSync(`sudo cp "${src}" "${dst}"`, { stdio: 'inherit' });
+          } else {
+            throw err;
+          }
         }
       }
 
-      installed.push(destinationScript);
+      if (needsElevated) {
+        try {
+          copyElevatedWindows(destFolder, sourceFiles);
+        } catch (elevatedErr) {
+          console.warn(`Admin elevation skipped or failed for ${destFolder}: ${elevatedErr.message}`);
+          failed.push({ destFolder, error: elevatedErr.message });
+          continue;
+        }
+      }
+
+      installed.push(destFolder);
     } catch (copyError) {
-      failed.push({ destinationScript, error: copyError.message });
+      failed.push({ destFolder, error: copyError.message });
     }
   }
 
@@ -153,20 +162,20 @@ try {
     throw new Error(`Failed to install to all destinations. First error: ${failed[0].error}`);
   }
 
-  console.log('Bridge script installed to:');
+  console.log('\nBridge scripts successfully installed to:');
   for (const target of installed) {
     console.log(`- ${target}`);
   }
 
   if (failed.length > 0) {
-    console.warn('Some destinations failed:');
+    console.warn('\nSome destinations failed:');
     for (const failure of failed) {
-      console.warn(`- ${failure.destinationScript}: ${failure.error}`);
+      console.warn(`- ${failure.destFolder}: ${failure.error}`);
     }
     console.warn('This is usually fine if at least one active After Effects Scripts path succeeded.');
   }
 
-  console.log('Bridge script installed successfully!');
+  console.log('\nBridge scripts installed successfully!');
   console.log('\nImportant next steps:');
   console.log('1. Open After Effects');
   if (isMac) {
@@ -178,14 +187,6 @@ try {
   console.log('4. Restart After Effects');
   console.log('5. Open the bridge panel: Window > mcp-bridge-auto.jsx');
 } catch (error) {
-  console.error(`Error installing script: ${error.message}`);
-  console.error('\nPlease try manual installation:');
-  console.error(`1. Copy: ${sourceScript}`);
-  console.error('2. To one of your After Effects Scripts folders (for example %APPDATA%\\Adobe\\After Effects\\<version>\\Scripts\\)');
-  if (isMac) {
-    console.error('3. You may need to run with sudo or copy manually via Finder');
-  } else {
-    console.error('3. You may need to run as administrator or use File Explorer with admin rights');
-  }
+  console.error(`\nError during installation: ${error.message}`);
   process.exit(1);
-} 
+}
