@@ -1,4 +1,4 @@
-﻿import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { execSync } from "child_process";
 import * as fs from "fs";
@@ -6,6 +6,7 @@ import * as os from "os";
 import * as path from "path";
 import { z } from "zod";
 import { fileURLToPath } from 'url';
+import { createZipArchive } from "./dotLottiePacker.js";
 
 
 const server = new McpServer({
@@ -318,7 +319,11 @@ server.tool(
       "getLayerAudioInfo",
       "addMarkersFromArray",
       "test-animation",
-      "bridgeTestEffects"
+      "bridgeTestEffects",
+      "auditLottieCompliance",
+      "compileLottieComp",
+      "exportLottieJson",
+      "runCustomScript"
     ];
     
     if (!allowedScripts.includes(script)) {
@@ -1847,6 +1852,259 @@ server.tool(
   }
 );
 
+
+function getLottieScriptRunner(funcName: string, args: Record<string, any>): string {
+  const compilerPath = path.join(SCRIPTS_DIR, "lottieCompiler.jsx").replace(/\\/g, "/");
+  const argsJson = JSON.stringify(args);
+  return `(function() {
+    try {
+      var scriptFile = new File("${compilerPath}");
+      if (scriptFile.exists) {
+        $.evalFile(scriptFile);
+      }
+      if (typeof ${funcName} === "function") {
+        return ${funcName}(${argsJson});
+      } else {
+        return JSON.stringify({ status: "error", message: "Function ${funcName} not found in lottieCompiler.jsx" });
+      }
+    } catch(err) {
+      return JSON.stringify({ status: "error", message: err.toString(), line: err.line });
+    }
+  })()`;
+}
+
+server.tool(
+  "audit-lottie-compliance",
+  "Audit an After Effects composition for Lottie compatibility. Scans for unsupported raster effects (Wave Warp, Turbulent Displace, blurs, glows), unbaked/risky expressions (sourceRectAtTime, valueAtTime, wiggle), unconverted text layers, vector footage (AI/EPS), 3D switches, merge paths, and adjustment layers.",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex).")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+      const code = getLottieScriptRunner("auditLottieCompliance", parameters);
+      writeCommandFile("runCustomScript", { code });
+      const result = await waitForBridgeResult("runCustomScript", 10000, 250);
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error auditing Lottie compliance: ${String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "compile-lottie-comp",
+  "Restructure and compile an After Effects composition to make it 100% Lottie-compliant. Clones the composition safely to [CompName]_LottieReady, auto-bakes expressions into discrete keyframes (resolving sourceRectAtTime/valueAtTime/wiggle runtime errors), converts text and vector footage to native shape layers, flattens 3D switches, and strips unsupported raster effects.",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex)."),
+    outputCompName: z.string().optional().describe("Custom name for compiled composition. Defaults to '[OriginalName]_LottieReady'."),
+    bakeExpressions: z.boolean().optional().describe("Bake all dynamic expressions into discrete keyframes (default: true)."),
+    convertTextToShapes: z.boolean().optional().describe("Convert text layers into vector shape layers (default: true)."),
+    convertVectorFootageToShapes: z.boolean().optional().describe("Convert Illustrator/EPS vector layers into native shape layers (default: true)."),
+    removeUnsupportedEffects: z.boolean().optional().describe("Remove raster effects that cannot render in vector Lottie (default: true)."),
+    removeDisabledLayers: z.boolean().optional().describe("Remove disabled or hidden layers to optimize file size (default: true)."),
+    flatten3D: z.boolean().optional().describe("Disable 3D layer switches to prevent 2D Lottie player glitches (default: true)."),
+    removeAudioAndAdjustmentLayers: z.boolean().optional().describe("Strip adjustment layers and audio layers (default: true).")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+      const code = getLottieScriptRunner("compileLottieComp", parameters);
+      writeCommandFile("runCustomScript", { code });
+      const result = await waitForBridgeResult("runCustomScript", 15000, 250);
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error compiling Lottie composition: ${String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "export-lottie-json",
+  "Export an After Effects composition directly into a production-ready Lottie JSON animation file.",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex)."),
+    outputPath: z.string().optional().describe("Absolute destination path for the .json file (e.g. 'C:/Users/austi/Desktop/flame.json'). Defaults to Documents folder.")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+      const code = getLottieScriptRunner("exportLottieJson", parameters);
+      writeCommandFile("runCustomScript", { code });
+      const result = await waitForBridgeResult("runCustomScript", 15000, 250);
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error exporting Lottie JSON: ${String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "add-lottie-state-markers",
+  "Add named interactive state markers to an After Effects composition timeline for dotLottie interactive playback (e.g. idle, hover, active, exit). Supports presets: 'button_toggle', 'hover_loop', 'toggle_switch' or custom state definitions.",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex)."),
+    preset: z.enum(["button_toggle", "hover_loop", "toggle_switch"]).optional().describe("Standard state layout preset."),
+    states: z.array(z.object({
+      name: z.string().describe("State name (e.g. 'idle', 'hover', 'click')."),
+      startFrame: z.number().optional().describe("Starting frame for state."),
+      durationFrames: z.number().optional().describe("Duration in frames."),
+      startTime: z.number().optional().describe("Starting time in seconds (alternative to startFrame)."),
+      duration: z.number().optional().describe("Duration in seconds (alternative to durationFrames)."),
+      comment: z.string().optional().describe("Marker comment text."),
+      colorIndex: z.number().int().min(1).max(16).optional().describe("Marker label color (1-16).")
+    })).optional().describe("Custom state markers to place on timeline."),
+    clearExistingMarkers: z.boolean().optional().describe("Clear existing composition markers before placing state markers (default: true).")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+      const code = getLottieScriptRunner("addLottieStateMarkers", parameters);
+      writeCommandFile("runCustomScript", { code });
+      const result = await waitForBridgeResult("runCustomScript", 10000, 250);
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error adding state markers: ${String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "generate-lottie-interactivity",
+  "Extract After Effects timeline markers and compile a complete dotLottie Interactivity Specification (state machine with onClick, onMouseEnter, onMouseLeave, onComplete, and conditionals).",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex)."),
+    animationId: z.string().optional().describe("Animation ID referenced in state machine (default: 'animation_1')."),
+    stateMachineId: z.string().optional().describe("State machine ID (default: 'dotLottie_state_machine').")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+      const code = getLottieScriptRunner("generateLottieInteractivity", parameters);
+      writeCommandFile("runCustomScript", { code });
+      const result = await waitForBridgeResult("runCustomScript", 10000, 250);
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error generating interactivity: ${String(error)}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "export-dotlottie-package",
+  "Export an After Effects composition directly into a standard .lottie (dotLottie) ZIP container file containing the Lottie animation JSON, manifest.json, and interactive state machine (states/interactivity.json).",
+  {
+    compIndex: z.number().int().positive().optional().describe("1-based index of target composition. Defaults to active comp."),
+    compName: z.string().optional().describe("Name of target composition (alternative to compIndex)."),
+    outputPath: z.string().optional().describe("Absolute destination path for the .lottie file (e.g. 'C:/Users/austi/Desktop/flame.lottie'). Defaults to Documents folder."),
+    statePreset: z.enum(["button_toggle", "hover_loop", "toggle_switch"]).optional().describe("Optional state layout preset to apply before packaging.")
+  },
+  async (parameters) => {
+    try {
+      clearResultsFile();
+
+      if (parameters.statePreset) {
+        const markerCode = getLottieScriptRunner("addLottieStateMarkers", {
+          compIndex: parameters.compIndex,
+          compName: parameters.compName,
+          preset: parameters.statePreset
+        });
+        writeCommandFile("runCustomScript", { code: markerCode });
+        await waitForBridgeResult("runCustomScript", 10000, 250);
+        clearResultsFile();
+      }
+
+      const tempLottiePath = path.join(getAETempDir(), "temp_anim.json").replace(/\\/g, "/");
+      const exportCode = getLottieScriptRunner("exportLottieJson", {
+        compIndex: parameters.compIndex,
+        compName: parameters.compName,
+        outputPath: tempLottiePath
+      });
+      writeCommandFile("runCustomScript", { code: exportCode });
+      const exportRes = await waitForBridgeResult("runCustomScript", 15000, 250);
+      clearResultsFile();
+
+      const interCode = getLottieScriptRunner("generateLottieInteractivity", {
+        compIndex: parameters.compIndex,
+        compName: parameters.compName,
+        animationId: "animation_1"
+      });
+      writeCommandFile("runCustomScript", { code: interCode });
+      const interRes = await waitForBridgeResult("runCustomScript", 10000, 250);
+
+      let stateMachineObj: any = null;
+      try {
+        const parsed = JSON.parse(interRes);
+        if (parsed && parsed.stateMachine) {
+          stateMachineObj = parsed.stateMachine;
+        }
+      } catch {}
+
+      if (!fs.existsSync(tempLottiePath)) {
+        return { content: [{ type: "text", text: `Error: Lottie JSON was not generated. Response: ${exportRes}` }], isError: true };
+      }
+
+      const lottieJsonData = fs.readFileSync(tempLottiePath, "utf-8");
+
+      const manifest = {
+        version: "1.0",
+        generator: "AfterEffects-MCP",
+        author: "Antigravity",
+        animations: [
+          {
+            id: "animation_1",
+            speed: 1,
+            loop: true,
+            direction: 1
+          }
+        ],
+        states: stateMachineObj ? ["interactivity"] : []
+      };
+
+      const archiveFiles: Array<{ name: string; data: string | Buffer }> = [
+        { name: "manifest.json", data: JSON.stringify(manifest, null, 2) },
+        { name: "animations/animation_1.json", data: lottieJsonData }
+      ];
+
+      if (stateMachineObj) {
+        archiveFiles.push({
+          name: "states/interactivity.json",
+          data: JSON.stringify(stateMachineObj, null, 2)
+        });
+      }
+
+      const dotLottieBuffer = createZipArchive(archiveFiles);
+      const finalOutPath = parameters.outputPath || path.join(os.homedir(), "Documents", "animation.lottie");
+      const outDir = path.dirname(finalOutPath);
+      if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+      }
+      fs.writeFileSync(finalOutPath, dotLottieBuffer);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            status: "success",
+            message: "dotLottie (.lottie) package created successfully.",
+            filePath: finalOutPath,
+            fileSizeBytes: dotLottieBuffer.length,
+            originalJsonSizeBytes: Buffer.byteLength(lottieJsonData, "utf-8"),
+            compressionRatio: (dotLottieBuffer.length / Buffer.byteLength(lottieJsonData, "utf-8")).toFixed(2),
+            statesIncluded: stateMachineObj ? Object.keys(stateMachineObj.states || {}) : []
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Error exporting dotLottie package: ${String(error)}` }], isError: true };
+    }
+  }
+);
 
 async function main() {
   console.error("After Effects MCP Server starting...");

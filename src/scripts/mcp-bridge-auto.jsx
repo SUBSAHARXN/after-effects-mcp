@@ -1,4 +1,4 @@
-﻿
+
 
 
 
@@ -2173,22 +2173,20 @@ if (typeof JSON.stringify !== "function") {
 }
 var aeVersion = parseFloat(app.version);
 var isAE2025OrLater = aeVersion >= 25.0;
-var panel = new Window("palette", "MCP Bridge Auto", undefined);
+var isDocked = (typeof this !== "undefined" && (this instanceof Panel || (this.constructor && this.constructor.name === "Panel")));
+var panel = isDocked ? this : new Window("palette", "MCP Bridge Auto", undefined, {resizeable: true});
 panel.orientation = "column";
 panel.alignChildren = ["fill", "top"];
 panel.spacing = 10;
-panel.margins = 16;
+panel.margins = (panel instanceof Panel) ? 8 : 16;
 var statusText = panel.add("statictext", undefined, "Waiting for commands...");
 statusText.alignment = ["fill", "top"];
 var logPanel = panel.add("panel", undefined, "Command Log");
 logPanel.orientation = "column";
 logPanel.alignChildren = ["fill", "fill"];
 var logText = logPanel.add("edittext", undefined, "", {multiline: true, readonly: true});
-logText.preferredSize.height = 200;
-if (isAE2025OrLater) {
-    var warning = panel.add("statictext", undefined, "AE 2025+: Dockable panels are not supported. Floating window only.");
-    warning.graphics.foregroundColor = warning.graphics.newPen(warning.graphics.PenType.SOLID_COLOR, [1,0.3,0,1], 1);
-}
+logText.preferredSize.height = (panel instanceof Panel) ? 120 : 180;
+var modeNotice = panel.add("statictext", undefined, isDocked ? "Bridge: Docked Panel Active" : "Bridge: Floating Window Active");
 var autoRunCheckbox = panel.add("checkbox", undefined, "Auto-run commands");
 autoRunCheckbox.value = true;
 var checkInterval = 2000;
@@ -2324,7 +2322,11 @@ function executeCommand(command, args) {
     
     logToPanel("Executing command: " + command);
     statusText.text = "Running: " + command;
-    panel.update();
+    if (panel instanceof Window && typeof panel.update === "function") {
+        panel.update();
+    } else if (panel.layout && typeof panel.layout.layout === "function") {
+        panel.layout.layout(true);
+    }
     
     try {
         logToPanel("Attempting to execute: " + command); // Log before switch
@@ -2448,10 +2450,16 @@ function executeCommand(command, args) {
                 result = removeLayerEffect(args);
                 logToPanel("Returned from removeLayerEffect.");
                 break;
-            case "bridgeTestEffects":
-                logToPanel("Calling bridgeTestEffects function...");
-                result = bridgeTestEffects(args);
-                logToPanel("Returned from bridgeTestEffects.");
+            case "runCustomScript":
+                logToPanel("Calling runCustomScript function...");
+                try {
+                    result = (function() {
+                        return eval(args.code);
+                    })();
+                } catch(evalErr) {
+                    result = JSON.stringify({ status: "error", message: evalErr.toString(), line: evalErr.line });
+                }
+                logToPanel("Returned from runCustomScript.");
                 break;
             default:
                 result = JSON.stringify({ error: "Unknown command: " + command });
@@ -2620,7 +2628,14 @@ statusText.text = "Ready - Auto-run is " + (autoRunCheckbox.value ? "ON" : "OFF"
 
 startCommandChecker();
 
+panel.onResizing = panel.onResize = function() {
+    this.layout.resize();
+};
 
-panel.center();
-panel.show();
+if (panel instanceof Window) {
+    panel.center();
+    panel.show();
+} else {
+    panel.layout.layout(true);
+}
 
