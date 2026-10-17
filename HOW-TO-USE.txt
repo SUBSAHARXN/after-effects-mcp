@@ -13,8 +13,8 @@ After Effects MCP - How To Use
 
 3) Start server from Claude/Desktop config
 Use this command setup in your MCP config:
-- command: C:\Program Files\nodejs\node.exe
-- args: C:\Users\llama\Documents\Projects\AEMCP\build\index.js
+- command: node
+- args: <path-to-repo>\build\index.js
 
 4) Open bridge panel in After Effects
 - Restart After Effects after install.
@@ -50,8 +50,8 @@ Use this command setup in your MCP config:
   - Restart Claude/Desktop so MCP reloads.
 
 9) Useful local paths
-- Commands file: C:\Users\llama\Documents\ae-mcp-bridge\ae_command.json
-- Results file: C:\Users\llama\Documents\ae-mcp-bridge\ae_mcp_result.json
+- Commands file: %USERPROFILE%\Documents\ae-mcp-bridge\ae_command.json
+- Results file: %USERPROFILE%\Documents\ae-mcp-bridge\ae_mcp_result.json
 
 10) Update cycle when code changes
 - npm run build

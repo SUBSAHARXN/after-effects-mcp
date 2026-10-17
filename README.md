@@ -50,7 +50,7 @@ In After Effects, enable:
 1. Clone and install:
 
 ```bash
-git clone https://github.com/TheLlamainator/after-effects-mcp.git
+git clone https://github.com/SUBSAHARXN/after-effects-mcp.git
 cd after-effects-mcp
 npm install
 ```
