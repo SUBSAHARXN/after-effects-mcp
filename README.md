@@ -13,6 +13,9 @@ This project is optimized for practical automation workflows: effects, presets, 
 ## Highlights
 
 - Full composition and layer automation.
+- **Lottie & dotLottie Compiler:** Auto-bakes unbaked expressions, converts text/AI to shapes, and strips raster filters.
+- **Interactive State Machines:** Generates official dotLottie interactivity specifications (`onClick`, `onMouseEnter`, `onMouseLeave`, `onComplete`).
+- **Zero-Dependency `.lottie` Packager:** Exports compressed dotLottie ZIP containers (>95% size reduction).
 - Deep effect inspection and property editing.
 - Advanced effect graph controls (temporal + spatial).
 - Preset search/list/apply workflows.
@@ -26,6 +29,7 @@ This project is optimized for practical automation workflows: effects, presets, 
 | Composition | Create, inspect project/compositions, get clip frame ranges |
 | Layers | Text/shape/solid/adjustment creation, transform/property updates, centering |
 | Animation | Layer keyframes, expressions, effect keyframes with graph controls |
+| **Lottie & dotLottie** | **Compliance audit (`audit-lottie-compliance`), auto-bake compiler (`compile-lottie-comp`), vector JSON export (`export-lottie-json`), state markers (`add-lottie-state-markers`), interactivity manifest generator (`generate-lottie-interactivity`), dotLottie ZIP packager (`export-dotlottie-package`)** |
 | Effects | Apply by name/matchName, list layer effects recursively, edit any effect property, remove effects |
 | Presets | Apply `.ffx`, list/search preset libraries |
 | Markers | Add single marker (comp/layer), add markers in bulk |
@@ -309,8 +313,8 @@ node build/index.js
 
 MIT. See `LICENSE`.
 
-## Inspo
+## Credits & Attribution
 
-https://github.com/Dakkshin/after-effects-mcp
-
-I took the base code from them but added a lot
+- **Original Project:** [Dakkshin/after-effects-mcp](https://github.com/Dakkshin/after-effects-mcp) (MIT License)
+- **Upstream Bridge:** [TheLlamainator/after-effects-mcp](https://github.com/TheLlamainator/after-effects-mcp)
+- **Lottie & State Machine Suite:** Extended by [SUBSAHARXN](https://github.com/SUBSAHARXN/after-effects-mcp) with automated expression baking, dotLottie packaging, and ExtendScript reliability patches.
